@@ -139,7 +139,8 @@ Before deploying the application, configure the MySQL datasource. In WildFly CLI
 $WILDFLY_HOME/bin/jboss-cli.sh --connect
 
 # Add MySQL JDBC driver module (download mysql-connector-j first)
-module add --name=com.mysql --resources=/path/to/mysql-connector-j-8.x.x.jar --dependencies=javax.api,javax.transaction.api
+# Note: For Jakarta EE 10 (WildFly 27+), use jakarta.api instead of javax.api
+module add --name=com.mysql --resources=/path/to/mysql-connector-j-8.x.x.jar --dependencies=jakarta.api,jakarta.transaction.api
 
 # Add JDBC driver
 /subsystem=datasources/jdbc-driver=mysql:add(driver-name=mysql,driver-module-name=com.mysql,driver-class-name=com.mysql.cj.jdbc.Driver)
@@ -175,6 +176,17 @@ $WILDFLY_HOME/bin/jboss-cli.sh --connect --command="deploy /path/to/phoenix-iam.
 
 The HSTS and security headers should be configured **after** the application is deployed. Here's the complete configuration script for your domain `anis-nsir.me`:
 
+### HSTS Max-Age Guidelines
+
+| Environment | Max-Age (seconds) | Description |
+|-------------|-------------------|-------------|
+| Testing | 86400 | 1 day - safe for initial testing |
+| Staging | 604800 | 1 week - verify everything works |
+| Production | 31536000 | 1 year - minimum for HSTS preload |
+| Production (strict) | 63072000 | 2 years - maximum security |
+
+**⚠️ Warning**: Start with a short max-age during testing. A long max-age can cause access issues if SSL is misconfigured.
+
 ### Step-by-Step WildFly CLI Commands
 
 Connect to WildFly CLI:
@@ -206,7 +218,9 @@ reload
 
 ```bash
 # Add HSTS response header filter
-/subsystem=undertow/configuration=filter/response-header=hsts:add(header-name=Strict-Transport-Security,header-value="max-age=63072000; includeSubDomains; preload")
+# For testing, use max-age=86400 (1 day)
+# For production with preload, use max-age=31536000 (1 year) or more
+/subsystem=undertow/configuration=filter/response-header=hsts:add(header-name=Strict-Transport-Security,header-value="max-age=31536000; includeSubDomains; preload")
 ```
 
 #### 3. Configure HTTP to HTTPS Redirect

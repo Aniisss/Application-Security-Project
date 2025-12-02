@@ -67,7 +67,7 @@ echo "---------------------------------------------"
 
 if [ -f "$MYSQL_DRIVER_PATH" ]; then
     $JBOSS_CLI --connect << EOF
-module add --name=com.mysql --resources=${MYSQL_DRIVER_PATH} --dependencies=javax.api,javax.transaction.api
+module add --name=com.mysql --resources=${MYSQL_DRIVER_PATH} --dependencies=jakarta.api,jakarta.transaction.api
 EOF
     echo "MySQL module added (or already exists)"
 else

@@ -114,7 +114,7 @@
             <plugin>
                 <groupId>org.wildfly.plugins</groupId>
                 <artifactId>wildfly-maven-plugin</artifactId>
-                <version>4.2.0.Final</version>
+                <version>5.0.0.Final</version>
                 <configuration>
                     <hostname>localhost</hostname>
                     <port>9990</port>

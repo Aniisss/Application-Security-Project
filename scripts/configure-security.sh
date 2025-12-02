@@ -6,19 +6,29 @@
 # This script configures HSTS, HTTP-to-HTTPS redirect,
 # and other security headers for WildFly/Undertow
 #
-# Usage: ./configure-security.sh [DOMAIN]
-# Example: ./configure-security.sh anis-nsir.me
+# Usage: ./configure-security.sh [DOMAIN] [HSTS_MAX_AGE]
+# Example: ./configure-security.sh anis-nsir.me 63072000
 #
 # Prerequisites:
 # - WildFly must be running
 # - TLS/SSL must be already configured
 # - Application should be deployed
 #
+# Note on HSTS max-age values:
+#   - Testing: 86400 (1 day)
+#   - Staging: 604800 (1 week)
+#   - Production: 31536000 (1 year) or 63072000 (2 years)
+#   - HSTS Preload requirement: minimum 31536000 (1 year)
+#
 #############################################################
 
 # Default domain if not provided
 DOMAIN="${1:-anis-nsir.me}"
 ADMIN_DOMAIN="admin.${DOMAIN}"
+
+# HSTS max-age in seconds (default: 1 year for production)
+# Start with 86400 (1 day) for testing, then increase gradually
+HSTS_MAX_AGE="${2:-31536000}"
 
 # WildFly home directory - adjust if needed
 WILDFLY_HOME="${WILDFLY_HOME:-/opt/wildfly}"
@@ -28,6 +38,7 @@ echo "============================================"
 echo "WildFly Security Configuration Script"
 echo "Domain: ${DOMAIN}"
 echo "Admin Domain: ${ADMIN_DOMAIN}"
+echo "HSTS Max-Age: ${HSTS_MAX_AGE} seconds"
 echo "============================================"
 
 # Check if WildFly CLI exists
@@ -105,7 +116,7 @@ batch
 
 # Add HSTS response header filter
 try
-/subsystem=undertow/configuration=filter/response-header=hsts:add(header-name=Strict-Transport-Security,header-value="max-age=63072000; includeSubDomains; preload")
+/subsystem=undertow/configuration=filter/response-header=hsts:add(header-name=Strict-Transport-Security,header-value="max-age=${HSTS_MAX_AGE}; includeSubDomains; preload")
 catch
 echo "HSTS filter may already exist"
 end-try
