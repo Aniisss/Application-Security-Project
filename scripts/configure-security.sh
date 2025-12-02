@@ -59,6 +59,13 @@ echo ""
 echo "Step 1: Configuring static content directories..."
 echo "---------------------------------------------"
 
+# Create static content directories if they don't exist
+echo "Creating static content directories..."
+sudo mkdir -p /var/www/root
+sudo mkdir -p /var/www/admin
+sudo chown -R wildfly:wildfly /var/www/root /var/www/admin 2>/dev/null || true
+echo "Note: Place your frontend SPA files in /var/www/root and /var/www/admin"
+
 $JBOSS_CLI --connect << EOF
 batch
 
@@ -79,7 +86,7 @@ echo "---------------------------------------------"
 $JBOSS_CLI --connect << EOF
 batch
 
-# Add admin content handler
+# Add admin content handler (serves files from /var/www/admin)
 try
 /subsystem=undertow/configuration=handler/file=admin-content:add(path="/var/www/admin")
 catch
@@ -280,7 +287,7 @@ echo "  curl -I https://${DOMAIN}"
 echo "  curl -I http://${DOMAIN}"
 echo ""
 echo "Expected HTTPS headers:"
-echo "  strict-transport-security: max-age=63072000; includeSubDomains; preload"
+echo "  strict-transport-security: max-age=${HSTS_MAX_AGE}; includeSubDomains; preload"
 echo "  x-content-type-options: nosniff"
 echo ""
 echo "HTTP should redirect to HTTPS with 301/302"

@@ -134,13 +134,24 @@ This will generate `target/phoenix-iam.war`.
 
 Before deploying the application, configure the MySQL datasource. In WildFly CLI (`jboss-cli.sh`):
 
+**First, download the MySQL JDBC driver:**
+```bash
+# Download from: https://dev.mysql.com/downloads/connector/j/
+# Select "Platform Independent" -> Download the TAR/ZIP archive
+# Extract and copy the JAR to a known location:
+wget https://dev.mysql.com/get/Downloads/Connector-J/mysql-connector-j-8.2.0.tar.gz
+tar -xzf mysql-connector-j-8.2.0.tar.gz
+sudo cp mysql-connector-j-8.2.0/mysql-connector-j-8.2.0.jar /opt/mysql-connector-j.jar
+```
+
+**Then configure WildFly:**
 ```bash
 # Start WildFly CLI
 $WILDFLY_HOME/bin/jboss-cli.sh --connect
 
-# Add MySQL JDBC driver module (download mysql-connector-j first)
+# Add MySQL JDBC driver module
 # Note: For Jakarta EE 10 (WildFly 27+), use jakarta.api instead of javax.api
-module add --name=com.mysql --resources=/path/to/mysql-connector-j-8.x.x.jar --dependencies=jakarta.api,jakarta.transaction.api
+module add --name=com.mysql --resources=/opt/mysql-connector-j.jar --dependencies=jakarta.api,jakarta.transaction.api
 
 # Add JDBC driver
 /subsystem=datasources/jdbc-driver=mysql:add(driver-name=mysql,driver-module-name=com.mysql,driver-class-name=com.mysql.cj.jdbc.Driver)

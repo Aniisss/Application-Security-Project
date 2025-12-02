@@ -27,8 +27,11 @@ DB_NAME="${DB_NAME:-phoenix_iam}"
 DB_USER="${DB_USER:-phoenix}"
 DB_PASS="${DB_PASS:-your_secure_password}"
 
-# MySQL JDBC driver path - EDIT THIS VALUE
-MYSQL_DRIVER_PATH="${MYSQL_DRIVER_PATH:-/opt/mysql-connector-j-8.2.0.jar}"
+# MySQL JDBC driver path
+# Download from: https://dev.mysql.com/downloads/connector/j/
+# Select "Platform Independent" and download the JAR file
+# Common installation path: /opt/mysql-connector-j.jar
+MYSQL_DRIVER_PATH="${MYSQL_DRIVER_PATH:-/opt/mysql-connector-j.jar}"
 
 # WildFly home directory - adjust if needed
 WILDFLY_HOME="${WILDFLY_HOME:-/opt/wildfly}"
