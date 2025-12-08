@@ -101,11 +101,12 @@ reload
 # Configuration Complete
 # ============================================================================
 
-echo "WildFly configuration for Phoenix IAM completed!"
-echo "Please ensure you have:"
-echo "1. Created the MySQL database 'phoenix_iam'"
-echo "2. Run the database-schema.sql script"
-echo "3. Updated the database password in the datasource configuration"
-echo "4. Placed your SSL certificate in $WILDFLY_HOME/standalone/configuration/"
-echo "5. Updated the certificate password in the SSL configuration"
-echo "6. Deployed phoenix-iam.war to $WILDFLY_HOME/standalone/deployments/"
+# Note: These messages are for documentation purposes
+# When running via CLI with --file, they will be ignored
+# Configuration complete. Please ensure you have:
+# 1. Created the MySQL database 'phoenix_iam'
+# 2. Run the database-schema.sql script
+# 3. Updated the database password in the datasource configuration above
+# 4. Placed your SSL certificate in $WILDFLY_HOME/standalone/configuration/
+# 5. Updated the certificate password in the SSL configuration
+# 6. Deployed phoenix-iam.war to $WILDFLY_HOME/standalone/deployments/
