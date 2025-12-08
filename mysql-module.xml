@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MySQL JDBC Driver Module Configuration for WildFly
+  
+  Installation Instructions:
+  1. Create directory structure: $WILDFLY_HOME/modules/com/mysql/main/
+  2. Download MySQL Connector/J from: https://dev.mysql.com/downloads/connector/j/
+  3. Copy mysql-connector-java-8.x.x.jar to $WILDFLY_HOME/modules/com/mysql/main/
+  4. Copy this file as module.xml to $WILDFLY_HOME/modules/com/mysql/main/module.xml
+-->
+<module xmlns="urn:jboss:module:1.9" name="com.mysql">
+    <resources>
+        <!-- Update the filename to match your MySQL Connector version -->
+        <resource-root path="mysql-connector-java-8.0.33.jar"/>
+    </resources>
+    <dependencies>
+        <module name="javax.api"/>
+        <module name="javax.transaction.api"/>
+    </dependencies>
+</module>
