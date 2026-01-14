@@ -68,7 +68,11 @@ async function exchangeCodeForToken(code, codeVerifier) {
         code_verifier: codeVerifier
     });
 
-    const response = await fetch(`${config.iamBaseUrl}/oauth/token`, {
+    // Node.js 18+ has native fetch, older versions need a polyfill
+    // For production, consider using node-fetch or axios for better compatibility
+    const fetchFn = globalThis.fetch || require('node-fetch');
+    
+    const response = await fetchFn(`${config.iamBaseUrl}/oauth/token`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -96,7 +100,11 @@ function decodeToken(token) {
     }
     
     const payload = parts[1];
-    const decoded = Buffer.from(payload, 'base64').toString('utf8');
+    // JWT uses base64url encoding, so we need to convert to standard base64
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    // Add padding if necessary
+    const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+    const decoded = Buffer.from(padded, 'base64').toString('utf8');
     return JSON.parse(decoded);
 }
 

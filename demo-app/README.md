@@ -62,8 +62,11 @@ Key configuration variables:
 
 ### Prerequisites
 
-1. Phoenix IAM must be running and accessible
-2. A tenant/client must be registered in the IAM with:
+1. **Node.js 18+** (for native fetch support) or Node.js 14+ with polyfills
+
+2. Phoenix IAM must be running and accessible
+
+3. A tenant/client must be registered in the IAM with:
    - Client ID: `demo-app` (or match your CLIENT_ID)
    - Redirect URI: `http://localhost:3000/callback` (or match your REDIRECT_URI)
    - Supported grant types: `authorization_code`

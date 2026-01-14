@@ -89,6 +89,9 @@ app.get('/callback', async (req, res) => {
     const userInfo = oauth.decodeToken(tokenResponse.access_token);
     
     // Store user session
+    // Note: For production, consider storing only a session ID and keeping tokens
+    // in a more secure backend storage (e.g., Redis, encrypted database)
+    // to prevent exposure in server logs or memory dumps
     req.session.user = {
       username: userInfo.sub,
       scopes: userInfo.scope,
