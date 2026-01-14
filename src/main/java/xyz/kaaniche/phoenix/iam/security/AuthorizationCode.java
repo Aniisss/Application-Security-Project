@@ -1,119 +1,102 @@
 package xyz.kaaniche.phoenix.iam.security;
 
+import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
-import javax.crypto.Cipher;
-import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.ChaCha20ParameterSpec;
 import java.nio.ByteBuffer;
-import java.security.SecureRandom;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.UUID;
 
-public record AuthorizationCode(String tenantName, String identityUsername,
-                                String approvedScopes, Long expirationDate,
-                                String redirectUri){
-    private static final SecretKey key;
+public record AuthorizationCode(
+        String tenantName,
+        String identityUsername,
+        String approvedScopes,
+        Long expirationDate,
+        String redirectUri) {
 
+    private static final SecretKey key = loadKey(); // persistent key recommended
     private static final String codePrefix = "urn:phoenix:code:";
+    private static final int NONCE_LEN = 12;
 
-    static {
+    private static SecretKey loadKey() {
         try {
-            key = KeyGenerator.getInstance("CHACHA20").generateKey();
+            // For production: load from secure config / keystore
+            return KeyGenerator.getInstance("ChaCha20").generateKey();
         } catch (GeneralSecurityException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to generate secret key", e);
         }
     }
 
-    public String getCode(String codeChallenge) throws Exception {
+    public String getCode(String codeChallenge) throws GeneralSecurityException {
         String code = UUID.randomUUID().toString();
-        String payload = Base64.getEncoder().withoutPadding().encodeToString((tenantName+":"+identityUsername
-                +":"+approvedScopes+":"+expirationDate+":"+redirectUri).getBytes(StandardCharsets.UTF_8));
-        String associatedData =  codePrefix+code;
-        code = codePrefix+code+":"+payload;
-        return code+":"+Base64.getEncoder().withoutPadding().encodeToString(ChaCha20Poly1305.encrypt(codeChallenge.getBytes(),key));
+        String payload = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString((tenantName + ":" + identityUsername + ":" + approvedScopes + ":" + expirationDate + ":" + redirectUri)
+                        .getBytes(StandardCharsets.UTF_8));
+        byte[] encryptedChallenge = encrypt(codeChallenge.getBytes(StandardCharsets.UTF_8));
+
+        return codePrefix + code + ":" + payload + ":" + Base64.getUrlEncoder().withoutPadding().encodeToString(encryptedChallenge);
     }
 
-    public static AuthorizationCode decode(String authorizationCode,String codeVerifier) throws Exception {
+    public static AuthorizationCode decode(String authorizationCode, String codeVerifier) throws GeneralSecurityException {
         int pos = authorizationCode.lastIndexOf(':');
-        String code = authorizationCode.substring(0,pos);
-        String cipherCodeChallenge = authorizationCode.substring(pos+1);
+        if (pos < 0) throw new IllegalArgumentException("Invalid code format");
+
+        String cipherCodeChallengeB64 = authorizationCode.substring(pos + 1);
+        String codeWithPayload = authorizationCode.substring(0, pos);
+
+        // Decode and verify code challenge
+        byte[] decrypted = decrypt(Base64.getUrlDecoder().decode(cipherCodeChallengeB64));
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         digest.update(codeVerifier.getBytes(StandardCharsets.UTF_8));
-        String expected = Base64.getEncoder().withoutPadding().encodeToString(digest.digest());
-        if(!expected.equals(new String(ChaCha20Poly1305.decrypt(Base64.getDecoder().decode(cipherCodeChallenge),key),StandardCharsets.UTF_8).replace('_','/').replace('-','+'))){
-            System.out.println(expected+" ?= "+ new String(ChaCha20Poly1305.decrypt(Base64.getDecoder().decode(cipherCodeChallenge),key),StandardCharsets.UTF_8));
-            return null;
-        }
-        code = code.substring(codePrefix.length());
-        pos = code.lastIndexOf(':');
-        code = new String(Base64.getDecoder().decode(code.substring(pos+1)),StandardCharsets.UTF_8);
-        String[] attributes = code.split(":");
-        return new AuthorizationCode(attributes[0],attributes[1],attributes[2],
-                Long.parseLong(attributes[3]),attributes[4]+":"+attributes[5]);
-    }
-    private static class ChaCha20Poly1305 {
+        String expected = Base64.getUrlEncoder().withoutPadding().encodeToString(digest.digest());
 
-        private static final String ENCRYPT_ALGO = "ChaCha20-Poly1305";
-        private static final int NONCE_LEN = 12; // 96 bits, 12 bytes
-
-        // if no nonce, generate a random 12 bytes nonce
-        public static byte[] encrypt(byte[] pText, SecretKey key) throws Exception {
-            return encrypt(pText, key, getNonce());
+        if (!expected.equals(new String(decrypted, StandardCharsets.UTF_8))) {
+            throw new GeneralSecurityException("Code verifier mismatch");
         }
 
-        public static byte[] encrypt(byte[] pText, SecretKey key, byte[] nonce) throws Exception {
+        // Extract payload
+        pos = codeWithPayload.lastIndexOf(':');
+        String payloadB64 = codeWithPayload.substring(pos + 1);
+        String decoded = new String(Base64.getUrlDecoder().decode(payloadB64), StandardCharsets.UTF_8);
 
-            Cipher cipher = Cipher.getInstance(ENCRYPT_ALGO);
-
-            // IV, initialization value with nonce
-            IvParameterSpec iv = new IvParameterSpec(nonce);
-
-            cipher.init(Cipher.ENCRYPT_MODE, key, iv);
-
-            byte[] encryptedText = cipher.doFinal(pText);
-
-            // append nonce to the encrypted text
-            byte[] output = ByteBuffer.allocate(encryptedText.length + NONCE_LEN)
-                    .put(encryptedText)
-                    .put(nonce)
-                    .array();
-
-            return output;
-        }
-
-        public static byte[] decrypt(byte[] cText, SecretKey key) throws Exception {
-
-            ByteBuffer bb = ByteBuffer.wrap(cText);
-
-            // split cText to get the appended nonce
-            byte[] encryptedText = new byte[cText.length - NONCE_LEN];
-            byte[] nonce = new byte[NONCE_LEN];
-            bb.get(encryptedText);
-            bb.get(nonce);
-
-            Cipher cipher = Cipher.getInstance(ENCRYPT_ALGO);
-
-            IvParameterSpec iv = new IvParameterSpec(nonce);
-
-            cipher.init(Cipher.DECRYPT_MODE, key, iv);
-
-            // decrypted text
-            byte[] output = cipher.doFinal(encryptedText);
-
-            return output;
-
-        }
-
-        // 96-bit nonce (12 bytes)
-        private static byte[] getNonce() {
-            byte[] newNonce = new byte[12];
-            new SecureRandom().nextBytes(newNonce);
-            return newNonce;
-        }
-
+        String[] parts = decoded.split(":", 5); // tenant, user, scopes, expiration, redirectUri
+        return new AuthorizationCode(parts[0], parts[1], parts[2], Long.parseLong(parts[3]), parts[4]);
     }
 
+    private static byte[] encrypt(byte[] plaintext) throws GeneralSecurityException {
+        byte[] nonce = new byte[NONCE_LEN];
+        new SecureRandom().nextBytes(nonce);
+
+        Cipher cipher = Cipher.getInstance("ChaCha20-Poly1305");
+        ChaCha20ParameterSpec spec = new ChaCha20ParameterSpec(nonce, 0);
+        cipher.init(Cipher.ENCRYPT_MODE, key, spec);
+
+        byte[] ciphertext = cipher.doFinal(plaintext);
+
+        return ByteBuffer.allocate(ciphertext.length + NONCE_LEN)
+                .put(ciphertext)
+                .put(nonce)
+                .array();
+    }
+
+    private static byte[] decrypt(byte[] ciphertext) throws GeneralSecurityException {
+        if (ciphertext.length < NONCE_LEN) throw new GeneralSecurityException("Invalid ciphertext");
+
+        ByteBuffer bb = ByteBuffer.wrap(ciphertext);
+        byte[] encrypted = new byte[ciphertext.length - NONCE_LEN];
+        byte[] nonce = new byte[NONCE_LEN];
+        bb.get(encrypted);
+        bb.get(nonce);
+
+        Cipher cipher = Cipher.getInstance("ChaCha20-Poly1305");
+        ChaCha20ParameterSpec spec = new ChaCha20ParameterSpec(nonce, 0);
+        cipher.init(Cipher.DECRYPT_MODE, key, spec);
+
+        return cipher.doFinal(encrypted);
+    }
 }

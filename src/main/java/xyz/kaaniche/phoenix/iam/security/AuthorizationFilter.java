@@ -11,6 +11,7 @@ import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.ResourceInfo;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.SecurityContext;
 import jakarta.ws.rs.ext.Provider;
 
 import java.lang.reflect.Method;
@@ -18,77 +19,74 @@ import java.lang.reflect.Method;
 @Provider
 @Priority(Priorities.AUTHORIZATION)
 public class AuthorizationFilter implements ContainerRequestFilter {
+
     @Context
     private ResourceInfo resourceInfo;
 
     @Override
     public void filter(ContainerRequestContext requestContext) {
         Method method = resourceInfo.getResourceMethod();
+        Class<?> resourceClass = resourceInfo.getResourceClass();
 
-        // @DenyAll on the method takes precedence over @RolesAllowed and @PermitAll
+        SecurityContext sc = requestContext.getSecurityContext();
+
+        // DenyAll on method
         if (method.isAnnotationPresent(DenyAll.class)) {
-            refuseRequest();
+            refuseRequest(sc);
         }
 
-        // @RolesAllowed on the method takes precedence over @PermitAll
+        // RolesAllowed on method
         RolesAllowed rolesAllowed = method.getAnnotation(RolesAllowed.class);
         if (rolesAllowed != null) {
-            performAuthorization(rolesAllowed.value(), requestContext);
+            performAuthorization(rolesAllowed.value(), sc);
             return;
         }
 
-        // @PermitAll on the method takes precedence over @RolesAllowed on the class
+        // PermitAll on method
         if (method.isAnnotationPresent(PermitAll.class)) {
-            // Do nothing
             return;
         }
 
-        // @PermitAll must not be attached to classes
-
-        // @RolesAllowed on the class takes precedence over @PermitAll on the class
-        rolesAllowed =
-                resourceInfo.getResourceClass().getAnnotation(RolesAllowed.class);
+        // RolesAllowed on class
+        rolesAllowed = resourceClass.getAnnotation(RolesAllowed.class);
         if (rolesAllowed != null) {
-            performAuthorization(rolesAllowed.value(), requestContext);
+            performAuthorization(rolesAllowed.value(), sc);
             return;
         }
 
-        // @DenyAll on the class
-        if (resourceInfo.getResourceClass().isAnnotationPresent(DenyAll.class)) {
-            refuseRequest();
+        // DenyAll on class
+        if (resourceClass.isAnnotationPresent(DenyAll.class)) {
+            refuseRequest(sc);
         }
 
-        // Authorization is not required for non-annotated methods
+        // PermitAll on class
+        if (resourceClass.isAnnotationPresent(PermitAll.class)) {
+            return;
+        }
+
+        // No annotation → allow by default
     }
 
-    /**
-     * Perform authorization based on roles.
-     *
-     * @param rolesAllowed the allowed roles
-     * @param requestContext the request context
-     */
-    private void performAuthorization(String[] rolesAllowed,
-                                      ContainerRequestContext requestContext) {
-
-        if (rolesAllowed.length > 0 && !isAuthenticated(requestContext)) {
-            refuseRequest();
+    private void performAuthorization(String[] rolesAllowed, SecurityContext sc) {
+        if (sc == null || sc.getUserPrincipal() == null) {
+            refuseRequest(sc);
         }
 
-        for (final String role : rolesAllowed) {
-            if (requestContext.getSecurityContext().isUserInRole(role)) {
+        for (String role : rolesAllowed) {
+            if (sc.isUserInRole(role.trim())) {
                 return;
             }
         }
 
-        refuseRequest();
+        refuseRequest(sc);
     }
 
-    private boolean isAuthenticated(final ContainerRequestContext requestContext) {
-        // Return true if the user is authenticated or false otherwise
-        return requestContext.getSecurityContext().getUserPrincipal() != null;
-    }
+    private void refuseRequest(SecurityContext sc) {
+        // Optional logging
+        System.out.println("Authorization failed for user: " +
+                (sc != null && sc.getUserPrincipal() != null ? sc.getUserPrincipal().getName() : "anonymous"));
 
-    private void refuseRequest() {
-        throw new WebApplicationException("You don't have permissions to perform this action.", Response.Status.UNAUTHORIZED);
+        // Return 403 Forbidden instead of 401
+        throw new WebApplicationException("Access denied", Response.Status.FORBIDDEN);
     }
 }
