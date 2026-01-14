@@ -54,9 +54,12 @@ app.get('/login', (req, res) => {
   // Generate state for CSRF protection
   const state = crypto.randomBytes(16).toString('hex');
   
-  console.log('[LOGIN] Generated state:', state);
-  console.log('[LOGIN] Generated codeVerifier:', codeVerifier.substring(0, 10) + '...');
-  console.log('[LOGIN] Session ID before save:', req.sessionID);
+  // Debug logging (development only)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[LOGIN] Generated state:', state);
+    console.log('[LOGIN] Generated codeVerifier:', codeVerifier.substring(0, 10) + '...');
+    console.log('[LOGIN] Session ID:', req.sessionID);
+  }
   
   // Store in session
   req.session.codeVerifier = codeVerifier;
@@ -69,7 +72,10 @@ app.get('/login', (req, res) => {
       return res.status(500).send('Failed to save session');
     }
     
-    console.log('[LOGIN] Session saved, redirecting to IAM');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[LOGIN] Session saved, redirecting to IAM');
+    }
+    
     // Redirect to IAM authorization endpoint
     const authUrl = oauth.getAuthorizationUrl(codeChallenge, state);
     res.redirect(authUrl);
@@ -80,10 +86,13 @@ app.get('/login', (req, res) => {
 app.get('/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
   
-  console.log('[CALLBACK] Received callback request');
-  console.log('[CALLBACK] Query params:', { code: code ? 'present' : 'missing', state, error });
-  console.log('[CALLBACK] Session state:', req.session.state);
-  console.log('[CALLBACK] Session codeVerifier:', req.session.codeVerifier ? 'present' : 'missing');
+  // Debug logging (development only)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[CALLBACK] Received callback request');
+    console.log('[CALLBACK] Query params:', { code: code ? 'present' : 'missing', state: state ? state.substring(0, 8) + '...' : 'missing', error });
+    console.log('[CALLBACK] Session state:', req.session.state ? req.session.state.substring(0, 8) + '...' : 'missing');
+    console.log('[CALLBACK] Session codeVerifier:', req.session.codeVerifier ? 'present' : 'missing');
+  }
   
   // Check for errors
   if (error) {
@@ -93,11 +102,14 @@ app.get('/callback', async (req, res) => {
   
   // Validate state parameter
   if (!state || state !== req.session.state) {
-    console.error('[CALLBACK] State validation failed:', {
-      received: state,
-      expected: req.session.state,
-      match: state === req.session.state
-    });
+    console.error('[CALLBACK] State validation failed');
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[CALLBACK] State mismatch details:', {
+        received: state ? 'present' : 'missing',
+        expected: req.session.state ? 'present' : 'missing',
+        match: state === req.session.state
+      });
+    }
     return res.status(400).send('Invalid state parameter - possible CSRF attack');
   }
   
@@ -108,14 +120,23 @@ app.get('/callback', async (req, res) => {
   }
   
   try {
-    console.log('[CALLBACK] Exchanging code for token...');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CALLBACK] Exchanging code for token...');
+    }
+    
     // Exchange code for token
     const tokenResponse = await oauth.exchangeCodeForToken(code, req.session.codeVerifier);
-    console.log('[CALLBACK] Token exchange successful');
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CALLBACK] Token exchange successful');
+    }
     
     // Decode the access token to get user info
     const userInfo = oauth.decodeToken(tokenResponse.access_token);
-    console.log('[CALLBACK] User authenticated:', userInfo.sub);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CALLBACK] User authenticated:', userInfo.sub);
+    }
     
     // Store user session
     // Note: For production, consider storing only a session ID and keeping tokens
@@ -137,7 +158,7 @@ app.get('/callback', async (req, res) => {
     // Redirect to dashboard
     res.redirect('/dashboard');
   } catch (error) {
-    console.error('[CALLBACK] Token exchange error:', error);
+    console.error('[CALLBACK] Token exchange error:', error.message);
     res.status(500).send(`Authentication failed: ${error.message}`);
   }
 });
