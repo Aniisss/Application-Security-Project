@@ -89,8 +89,12 @@ app.get('/callback', async (req, res) => {
   // Debug logging (development only)
   if (process.env.NODE_ENV !== 'production') {
     console.log('[CALLBACK] Received callback request');
-    console.log('[CALLBACK] Query params:', { code: code ? 'present' : 'missing', state: state ? state.substring(0, 8) + '...' : 'missing', error });
-    console.log('[CALLBACK] Session state:', req.session.state ? req.session.state.substring(0, 8) + '...' : 'missing');
+    console.log('[CALLBACK] Query params:', { 
+      code: code ? 'present' : 'missing', 
+      state: state && state.length > 8 ? state.substring(0, 8) + '...' : state || 'missing', 
+      error 
+    });
+    console.log('[CALLBACK] Session state:', req.session.state && req.session.state.length > 8 ? req.session.state.substring(0, 8) + '...' : req.session.state || 'missing');
     console.log('[CALLBACK] Session codeVerifier:', req.session.codeVerifier ? 'present' : 'missing');
   }
   
