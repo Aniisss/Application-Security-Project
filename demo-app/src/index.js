@@ -106,7 +106,7 @@ app.get('/callback', async (req, res) => {
   
   // Validate state parameter
   if (!state || state !== req.session.state) {
-    console.error('[CALLBACK] State validation failed');
+    console.error('[CALLBACK] State validation failed - possible CSRF attack');
     if (process.env.NODE_ENV !== 'production') {
       console.error('[CALLBACK] State mismatch details:', {
         received: state ? 'present' : 'missing',
@@ -119,7 +119,7 @@ app.get('/callback', async (req, res) => {
   
   // Validate code
   if (!code) {
-    console.error('[CALLBACK] No authorization code received');
+    console.error('[CALLBACK] No authorization code received - possible authentication failure');
     return res.status(400).send('No authorization code received');
   }
   
