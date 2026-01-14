@@ -53,19 +53,23 @@ public class PhoenixIAMRepository {
         }
     }
     public String[] getRoles(String username){
-        TypedQuery<Long> query = entityManager.createQuery("select i.roles from Identity i where username=:username",Long.class);
-        query.setParameter("username",username);
-        Long roles = query.getSingleResult();
-        Set<String> ret = new HashSet<>();
-        for(Role role:Role.values()){
-            if((roles&role.getValue())!=0L){
-                String value = Role.byValue(role.getValue());
-                if (value==null){
-                    continue;
+        try {
+            TypedQuery<Long> query = entityManager.createQuery("select i.roles from Identity i where username=:username",Long.class);
+            query.setParameter("username",username);
+            Long roles = query.getSingleResult();
+            Set<String> ret = new HashSet<>();
+            for(Role role:Role.values()){
+                if((roles&role.getValue())!=0L){
+                    String value = Role.byValue(role.getValue());
+                    if (value==null){
+                        continue;
+                    }
+                    ret.add(value);
                 }
-                ret.add(value);
             }
+            return ret.toArray(new String[0]);
+        } catch (jakarta.persistence.NoResultException e) {
+            return new String[0];
         }
-        return ret.toArray(new String[0]);
     }
 }
