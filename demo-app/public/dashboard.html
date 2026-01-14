@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Phoenix IAM Demo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>🎯 Dashboard</h1>
+                <a href="/logout" class="btn btn-secondary">Logout</a>
+            </div>
+            
+            <div class="content">
+                <div class="success-message">
+                    <h2>✅ Authentication Successful!</h2>
+                    <p>You have successfully authenticated with Phoenix IAM</p>
+                </div>
+                
+                <div class="user-info" id="userInfo">
+                    <h3>User Information</h3>
+                    <div class="loading">Loading user information...</div>
+                </div>
+                
+                <div class="token-info" id="tokenInfo">
+                    <h3>Token Information</h3>
+                    <div class="loading">Loading token information...</div>
+                </div>
+                
+                <div class="info-box">
+                    <h4>🔒 What's Happening?</h4>
+                    <ol>
+                        <li>You clicked "Login with Phoenix IAM"</li>
+                        <li>The app redirected you to the Phoenix IAM authorization endpoint</li>
+                        <li>You logged in with your credentials</li>
+                        <li>Phoenix IAM redirected back with an authorization code</li>
+                        <li>The app exchanged the code for an access token using PKCE</li>
+                        <li>The access token is now stored in your session</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Fetch and display user information
+        fetch('/api/user')
+            .then(response => response.json())
+            .then(data => {
+                displayUserInfo(data);
+                displayTokenInfo(data);
+            })
+            .catch(error => {
+                console.error('Error fetching user info:', error);
+                document.getElementById('userInfo').innerHTML = '<p class="error">Failed to load user information</p>';
+            });
+        
+        function displayUserInfo(data) {
+            const userInfoDiv = document.getElementById('userInfo');
+            userInfoDiv.innerHTML = `
+                <h3>User Information</h3>
+                <table class="info-table">
+                    <tr>
+                        <td><strong>Username:</strong></td>
+                        <td>${escapeHtml(data.username)}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Scopes:</strong></td>
+                        <td><span class="badge">${escapeHtml(data.scopes)}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Roles:</strong></td>
+                        <td>${data.roles && data.roles.length > 0 ? data.roles.map(r => `<span class="badge">${escapeHtml(r)}</span>`).join(' ') : '<em>No roles assigned</em>'}</td>
+                    </tr>
+                </table>
+            `;
+        }
+        
+        function displayTokenInfo(data) {
+            const tokenInfoDiv = document.getElementById('tokenInfo');
+            tokenInfoDiv.innerHTML = `
+                <h3>Token Information</h3>
+                <table class="info-table">
+                    <tr>
+                        <td><strong>Token Type:</strong></td>
+                        <td>${escapeHtml(data.tokenType)}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Access Token (first 50 chars):</strong></td>
+                        <td><code class="token-preview">${escapeHtml(data.accessToken.substring(0, 50))}...</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Refresh Token Available:</strong></td>
+                        <td>${data.refreshToken ? '✓ Yes' : '✗ No'}</td>
+                    </tr>
+                </table>
+            `;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
