@@ -17,7 +17,8 @@ app.use(session({
   cookie: { 
     secure: process.env.NODE_ENV === 'production', 
     httpOnly: true,
-    maxAge: 3600000 // 1 hour
+    maxAge: 3600000, // 1 hour
+    sameSite: 'lax' // Allow cookie to be sent on redirects from OAuth provider
   }
 }));
 
@@ -53,40 +54,68 @@ app.get('/login', (req, res) => {
   // Generate state for CSRF protection
   const state = crypto.randomBytes(16).toString('hex');
   
+  console.log('[LOGIN] Generated state:', state);
+  console.log('[LOGIN] Generated codeVerifier:', codeVerifier.substring(0, 10) + '...');
+  console.log('[LOGIN] Session ID before save:', req.sessionID);
+  
   // Store in session
   req.session.codeVerifier = codeVerifier;
   req.session.state = state;
   
-  // Redirect to IAM authorization endpoint
-  const authUrl = oauth.getAuthorizationUrl(codeChallenge, state);
-  res.redirect(authUrl);
+  // Ensure session is saved before redirecting
+  req.session.save((err) => {
+    if (err) {
+      console.error('[LOGIN] Session save error:', err);
+      return res.status(500).send('Failed to save session');
+    }
+    
+    console.log('[LOGIN] Session saved, redirecting to IAM');
+    // Redirect to IAM authorization endpoint
+    const authUrl = oauth.getAuthorizationUrl(codeChallenge, state);
+    res.redirect(authUrl);
+  });
 });
 
 // OAuth callback endpoint
 app.get('/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
   
+  console.log('[CALLBACK] Received callback request');
+  console.log('[CALLBACK] Query params:', { code: code ? 'present' : 'missing', state, error });
+  console.log('[CALLBACK] Session state:', req.session.state);
+  console.log('[CALLBACK] Session codeVerifier:', req.session.codeVerifier ? 'present' : 'missing');
+  
   // Check for errors
   if (error) {
+    console.error('[CALLBACK] OAuth error from IAM:', error, error_description);
     return res.status(400).send(`OAuth Error: ${error} - ${error_description || 'Unknown error'}`);
   }
   
   // Validate state parameter
   if (!state || state !== req.session.state) {
+    console.error('[CALLBACK] State validation failed:', {
+      received: state,
+      expected: req.session.state,
+      match: state === req.session.state
+    });
     return res.status(400).send('Invalid state parameter - possible CSRF attack');
   }
   
   // Validate code
   if (!code) {
+    console.error('[CALLBACK] No authorization code received');
     return res.status(400).send('No authorization code received');
   }
   
   try {
+    console.log('[CALLBACK] Exchanging code for token...');
     // Exchange code for token
     const tokenResponse = await oauth.exchangeCodeForToken(code, req.session.codeVerifier);
+    console.log('[CALLBACK] Token exchange successful');
     
     // Decode the access token to get user info
     const userInfo = oauth.decodeToken(tokenResponse.access_token);
+    console.log('[CALLBACK] User authenticated:', userInfo.sub);
     
     // Store user session
     // Note: For production, consider storing only a session ID and keeping tokens
@@ -108,7 +137,7 @@ app.get('/callback', async (req, res) => {
     // Redirect to dashboard
     res.redirect('/dashboard');
   } catch (error) {
-    console.error('Token exchange error:', error);
+    console.error('[CALLBACK] Token exchange error:', error);
     res.status(500).send(`Authentication failed: ${error.message}`);
   }
 });
