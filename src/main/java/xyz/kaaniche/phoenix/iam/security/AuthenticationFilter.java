@@ -4,6 +4,7 @@ import com.nimbusds.jwt.JWT;
 import com.nimbusds.jwt.JWTClaimsSet;
 import jakarta.annotation.Priority;
 import jakarta.ejb.EJBException;
+import jakarta.inject.Inject;
 import jakarta.security.enterprise.CallerPrincipal;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
@@ -20,23 +21,26 @@ import javax.naming.NamingException;
 import java.security.Principal;
 import java.text.ParseException;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
 @Secured
 @Provider
 @Priority(Priorities.AUTHENTICATION)
 public class AuthenticationFilter implements ContainerRequestFilter {
-    private static final Config config = ConfigProvider.getConfig();
-    private static final String REALM = config.getValue("mp.jwt.realm",String.class);
 
-    private static final String CLAIM_ROLES = config.getValue("jwt.claim.roles",String.class);
+    private static final Config config = ConfigProvider.getConfig();
+    private static final String REALM = config.getValue("mp.jwt.realm", String.class);
+    private static final String CLAIM_ROLES = config.getValue("jwt.claim.roles", String.class);
     private static final String AUTHENTICATION_SCHEME = "Bearer";
 
     @Override
     public void filter(ContainerRequestContext requestContext) {
-        // Get the Authorization header from the request
-        String authorizationHeader =
-                requestContext.getHeaderString(HttpHeaders.AUTHORIZATION);
+        // Get the Authorization header
+        String authorizationHeader = requestContext.getHeaderString(HttpHeaders.AUTHORIZATION);
 
         // Validate the Authorization header
         if (!isTokenBasedAuthentication(authorizationHeader)) {
@@ -44,65 +48,73 @@ public class AuthenticationFilter implements ContainerRequestFilter {
             return;
         }
 
-        // Extract the token from the Authorization header
-        String token = authorizationHeader
-                .substring(AUTHENTICATION_SCHEME.length()).trim();
+        // Extract the token from the header
+        String token = authorizationHeader.substring(AUTHENTICATION_SCHEME.length()).trim();
+        if (token.isEmpty()) {
+            abortWithUnauthorized(requestContext);
+            return;
+        }
 
         try {
-            // Validate the token
+            // Lookup JwtManager via JNDI
             InitialContext context = new InitialContext();
-            JwtManager manager = (JwtManager) context.lookup("java:module/JwtManager");//the last value in the jndi name must match the name of the EJB class managing your JWT
+            JwtManager manager = (JwtManager) context.lookup("java:module/JwtManager");
+
             Optional<JWT> jwt = manager.validateJWT(token);
-            if(jwt.isPresent()){
+            if (jwt.isPresent()) {
                 JWTClaimsSet claims = jwt.get().getJWTClaimsSet();
-                final String[] roles = claims.getStringArrayClaim(CLAIM_ROLES);
+
+                // ✅ Token expiration check
+                if (claims.getExpirationTime() != null && claims.getExpirationTime().before(new Date())) {
+                    abortWithUnauthorized(requestContext);
+                    return;
+                }
+
+                // Null-safe role handling
+                final String[] rolesArray = claims.getStringArrayClaim(CLAIM_ROLES);
+                final Set<String> roles = rolesArray != null ? new HashSet<>(Arrays.asList(rolesArray)) : Collections.emptySet();
+
                 final Principal userPrincipal = new CallerPrincipal(claims.getSubject());
                 final boolean isSecure = requestContext.getSecurityContext().isSecure();
 
+                // Identity utility (be aware of thread safety)
                 IdentityUtility.iAm(claims.getSubject());
 
+                // Set the SecurityContext for the request
                 requestContext.setSecurityContext(new SecurityContext() {
                     @Override
-                    public Principal getUserPrincipal() {
-                        return userPrincipal;
-                    }
+                    public Principal getUserPrincipal() { return userPrincipal; }
 
                     @Override
-                    public boolean isUserInRole(String role) {
-                        return Arrays.asList(roles).contains(role);
-                    }
+                    public boolean isUserInRole(String role) { return roles.contains(role); }
 
                     @Override
-                    public boolean isSecure() {
-                        return isSecure;
-                    }
+                    public boolean isSecure() { return isSecure; }
 
                     @Override
-                    public String getAuthenticationScheme() {
-                        return AUTHENTICATION_SCHEME;
-                    }
+                    public String getAuthenticationScheme() { return AUTHENTICATION_SCHEME; }
                 });
+
+            } else {
+                abortWithUnauthorized(requestContext);
             }
+
         } catch (EJBException | ParseException | NamingException e) {
             abortWithUnauthorized(requestContext);
         }
     }
 
     private boolean isTokenBasedAuthentication(String authorizationHeader) {
-        // Check if the Authorization header is valid
-        // It must not be null and must be prefixed with "Bearer" plus a whitespace
-        // The authentication scheme comparison must be case-insensitive
-        return authorizationHeader != null && authorizationHeader.toLowerCase()
-                .startsWith(AUTHENTICATION_SCHEME.toLowerCase() + " ");
+        return authorizationHeader != null &&
+               authorizationHeader.toLowerCase().startsWith(AUTHENTICATION_SCHEME.toLowerCase() + " ");
     }
 
     private void abortWithUnauthorized(ContainerRequestContext requestContext) {
-        // Abort the filter chain with a 401 status code response
-        // The WWW-Authenticate header is sent along with the response
         requestContext.abortWith(
-                Response.status(Response.Status.UNAUTHORIZED)
-                        .header(HttpHeaders.WWW_AUTHENTICATE,
-                                AUTHENTICATION_SCHEME + " realm=\"" + REALM + "\"")
-                        .build());
+            Response.status(Response.Status.UNAUTHORIZED)
+                    .header(HttpHeaders.WWW_AUTHENTICATE,
+                            AUTHENTICATION_SCHEME + " realm=\"" + REALM + "\"")
+                    .build()
+        );
     }
 }
