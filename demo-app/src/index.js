@@ -68,7 +68,7 @@ app.get('/login', (req, res) => {
   // Ensure session is saved before redirecting
   req.session.save((err) => {
     if (err) {
-      console.error('[LOGIN] Session save error:', err);
+      console.error('[LOGIN] Session save error:', process.env.NODE_ENV === 'production' ? err.message : err);
       return res.status(500).send('Failed to save session');
     }
     
