@@ -2,6 +2,7 @@ package xyz.kaaniche.phoenix.iam.security;
 
 import com.nimbusds.jwt.JWT;
 import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import jakarta.annotation.Priority;
 import jakarta.ejb.EJBException;
 import jakarta.inject.Inject;
@@ -60,7 +61,7 @@ public class AuthenticationFilter implements ContainerRequestFilter {
             InitialContext context = new InitialContext();
             JwtManager manager = (JwtManager) context.lookup("java:module/JwtManager");
 
-            Optional<JWT> jwt = manager.validateJWT(token);
+            Optional<SignedJWT> jwt = manager.validateAccessToken(token);
             if (jwt.isPresent()) {
                 JWTClaimsSet claims = jwt.get().getJWTClaimsSet();
 
