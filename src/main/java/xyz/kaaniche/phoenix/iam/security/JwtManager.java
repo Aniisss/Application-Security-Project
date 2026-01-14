@@ -7,7 +7,6 @@ import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.OctetKeyPair;
 import com.nimbusds.jose.jwk.gen.OctetKeyPairGenerator;
-import com.nimbusds.jwt.JWT;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import jakarta.annotation.PostConstruct;
@@ -31,11 +30,16 @@ import java.util.*;
 @LocalBean
 public class JwtManager {
 
-    private static final String CLAIM_TOKEN_TYPE = "token_type";
-    private static final String TOKEN_TYPE_ACCESS = "access";
-    private static final String TOKEN_TYPE_REFRESH = "refresh";
+    // --- Standardized claim names ---
+    public static final String CLAIM_TOKEN_TYPE = "token_type";
+    public static final String TOKEN_TYPE_ACCESS = "access";
+    public static final String TOKEN_TYPE_REFRESH = "refresh";
 
-    // Small clock-skew tolerance
+    public static final String CLAIM_TENANT_ID = "tenant_id";
+    public static final String CLAIM_CLIENT_ID = "client_id";
+    public static final String CLAIM_SCOPE = "scope";
+
+    // Small clock-skew tolerance (seconds)
     private static final long CLOCK_SKEW_SECONDS = 60;
 
     private final Config config = ConfigProvider.getConfig();
@@ -63,13 +67,13 @@ public class JwtManager {
 
     public String generateAccessToken(String tenantId, String subject, String approvedScopes, String[] roles) {
         try {
-            OctetKeyPair octetKeyPair = getKeyPair()
+            OctetKeyPair keyPair = getKeyPair()
                     .orElseThrow(() -> new EJBException("Unable to retrieve a valid Ed25519 KeyPair"));
 
-            JWSSigner signer = new Ed25519Signer(octetKeyPair);
+            JWSSigner signer = new Ed25519Signer(keyPair);
 
             JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.EdDSA)
-                    .keyID(octetKeyPair.getKeyID())
+                    .keyID(keyPair.getKeyID())
                     .type(JOSEObjectType.JWT)
                     .build();
 
@@ -80,8 +84,8 @@ public class JwtManager {
                     .audience(audiences)
                     .subject(subject)
                     .claim("upn", subject)
-                    .claim("tenant_id", tenantId)
-                    .claim("scope", approvedScopes)
+                    .claim(CLAIM_TENANT_ID, tenantId)
+                    .claim(CLAIM_SCOPE, normalizeScopes(approvedScopes))
                     .claim(claimRoles, roles)
                     .claim(CLAIM_TOKEN_TYPE, TOKEN_TYPE_ACCESS)
                     .jwtID(UUID.randomUUID().toString())
@@ -90,59 +94,64 @@ public class JwtManager {
                     .expirationTime(Date.from(now.plus(jwtLifetimeDuration, ChronoUnit.SECONDS)))
                     .build();
 
-            SignedJWT signedJWT = new SignedJWT(header, claimsSet);
-            signedJWT.sign(signer);
-            return signedJWT.serialize();
+            SignedJWT jwt = new SignedJWT(header, claimsSet);
+            jwt.sign(signer);
+            return jwt.serialize();
 
         } catch (JOSEException e) {
             throw new EJBException(e);
         }
     }
 
+    /**
+     * Refresh token should be bound to the CLIENT (OAuth client_id) and optionally tenant_id.
+     * Here we store BOTH to avoid confusion:
+     * - client_id: the OAuth client (tenant/application)
+     * - tenant_id: optional same value, keep if your system expects it
+     */
     public String generateRefreshToken(String clientId, String subject, String approvedScope) {
         try {
-            OctetKeyPair octetKeyPair = getKeyPair()
+            OctetKeyPair keyPair = getKeyPair()
                     .orElseThrow(() -> new EJBException("Unable to retrieve a valid Ed25519 KeyPair"));
 
-            JWSSigner signer = new Ed25519Signer(octetKeyPair);
+            JWSSigner signer = new Ed25519Signer(keyPair);
 
             JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.EdDSA)
-                    .keyID(octetKeyPair.getKeyID())
+                    .keyID(keyPair.getKeyID())
                     .type(JOSEObjectType.JWT)
                     .build();
 
             Instant now = Instant.now();
 
-            JWTClaimsSet refreshTokenClaims = new JWTClaimsSet.Builder()
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
                     .issuer(issuer)
-                    .audience(audiences) // optionally use a dedicated refresh audience
+                    .audience(audiences)
                     .subject(subject)
-                    // Keeping your original field name, but note: it stores clientId in tenant_id.
-                    .claim("tenant_id", clientId)
-                    .claim("scope", approvedScope)
+                    // keep compatibility: some code expects tenant_id
+                    .claim(CLAIM_TENANT_ID, clientId)
+                    // correct semantic name:
+                    .claim(CLAIM_CLIENT_ID, clientId)
+                    .claim(CLAIM_SCOPE, normalizeScopes(approvedScope))
                     .claim(CLAIM_TOKEN_TYPE, TOKEN_TYPE_REFRESH)
                     .jwtID(UUID.randomUUID().toString())
                     .issueTime(Date.from(now))
                     .notBeforeTime(Date.from(now))
-                    // refresh token for 3 hours
                     .expirationTime(Date.from(now.plus(3, ChronoUnit.HOURS)))
                     .build();
 
-            SignedJWT signedRefreshToken = new SignedJWT(header, refreshTokenClaims);
-            signedRefreshToken.sign(signer);
-            return signedRefreshToken.serialize();
+            SignedJWT jwt = new SignedJWT(header, claims);
+            jwt.sign(signer);
+            return jwt.serialize();
 
         } catch (JOSEException e) {
             throw new EJBException(e);
         }
     }
 
-    /** Preferred: validate an access token (prevents refresh/access confusion). */
     public Optional<SignedJWT> validateAccessToken(String token) {
         return validateJWT(token, TOKEN_TYPE_ACCESS);
     }
 
-    /** Preferred: validate a refresh token (prevents refresh/access confusion). */
     public Optional<SignedJWT> validateRefreshToken(String token) {
         return validateJWT(token, TOKEN_TYPE_REFRESH);
     }
@@ -164,39 +173,36 @@ public class JwtManager {
                     .orElseThrow(() -> new EJBException("Unable to retrieve the key pair associated with the kid"))
                     .toPublicJWK();
 
-            // Signature
             JWSVerifier verifier = new Ed25519Verifier(publicKey);
-            if (!parsed.verify(verifier)) {
-                return Optional.empty();
-            }
+            if (!parsed.verify(verifier)) return Optional.empty();
 
             JWTClaimsSet claims = parsed.getJWTClaimsSet();
             Instant now = Instant.now();
 
-            // exp is REQUIRED
+            // exp REQUIRED
             Date exp = claims.getExpirationTime();
             if (exp == null) return Optional.empty();
             if (exp.toInstant().isBefore(now.minusSeconds(CLOCK_SKEW_SECONDS))) return Optional.empty();
 
-            // nbf (if present)
+            // nbf
             Date nbf = claims.getNotBeforeTime();
             if (nbf != null && nbf.toInstant().isAfter(now.plusSeconds(CLOCK_SKEW_SECONDS))) return Optional.empty();
 
-            // iat sanity (if present)
+            // iat sanity
             Date iat = claims.getIssueTime();
             if (iat != null && iat.toInstant().isAfter(now.plusSeconds(CLOCK_SKEW_SECONDS))) return Optional.empty();
 
-            // iss required and must match
+            // iss
             String tokenIss = claims.getIssuer();
             if (tokenIss == null || !issuer.equals(tokenIss)) return Optional.empty();
 
-            // aud required and must intersect configured audiences
+            // aud
             List<String> tokenAud = claims.getAudience();
             if (tokenAud == null || tokenAud.isEmpty()) return Optional.empty();
             boolean audOk = tokenAud.stream().anyMatch(audiences::contains);
             if (!audOk) return Optional.empty();
 
-            // token_type required
+            // token_type
             String tokenType = claims.getStringClaim(CLAIM_TOKEN_TYPE);
             if (tokenType == null || !tokenType.equals(expectedType)) return Optional.empty();
 
@@ -233,25 +239,23 @@ public class JwtManager {
     }
 
     private boolean hasNotExpired(OctetKeyPair keyPair) {
-        long currentUTCSeconds = LocalDateTime.now(ZoneId.of("UTC")).toEpochSecond(ZoneOffset.UTC);
+        long now = LocalDateTime.now(ZoneId.of("UTC")).toEpochSecond(ZoneOffset.UTC);
         Long exp = keyPairExpirationTimes.get(keyPair.getKeyID());
-        return exp != null && currentUTCSeconds <= exp;
+        return exp != null && now <= exp;
     }
 
     private boolean isPublicKeyExpired(OctetKeyPair keyPair) {
-        long currentUTCSeconds = LocalDateTime.now(ZoneId.of("UTC")).toEpochSecond(ZoneOffset.UTC);
+        long now = LocalDateTime.now(ZoneId.of("UTC")).toEpochSecond(ZoneOffset.UTC);
         Long exp = keyPairExpirationTimes.get(keyPair.getKeyID());
         if (exp == null) return true;
-        return currentUTCSeconds > (exp + jwtLifetimeDuration);
+        return now > (exp + jwtLifetimeDuration);
     }
 
     private Optional<OctetKeyPair> getKeyPair() {
-        // prune expired public keys + ALSO prune their metadata to prevent memory leak
+        // prune expired public keys + prune metadata (prevents memory leak)
         cachedKeyPairs.removeIf(kp -> {
             boolean expired = isPublicKeyExpired(kp);
-            if (expired) {
-                keyPairExpirationTimes.remove(kp.getKeyID());
-            }
+            if (expired) keyPairExpirationTimes.remove(kp.getKeyID());
             return expired;
         });
 
@@ -262,7 +266,23 @@ public class JwtManager {
         return cachedKeyPairs.stream().filter(this::hasNotExpired).findAny();
     }
 
+    private static String normalizeScopes(String scopes) {
+        if (scopes == null) return "";
+        // normalize whitespace to single spaces
+        return String.join(" ", Arrays.stream(scopes.trim().split("\\s+"))
+                .filter(s -> !s.isBlank())
+                .toList());
+    }
+
     public String getClaimRoles() {
         return claimRoles;
+    }
+
+    public String getIssuer() {
+        return issuer;
+    }
+
+    public List<String> getAudiences() {
+        return audiences;
     }
 }
