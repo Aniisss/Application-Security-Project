@@ -17,7 +17,8 @@ app.use(session({
   cookie: { 
     secure: process.env.NODE_ENV === 'production', 
     httpOnly: true,
-    maxAge: 3600000 // 1 hour
+    maxAge: 3600000, // 1 hour
+    sameSite: 'lax' // Allow cookie to be sent on redirects from OAuth provider
   }
 }));
 
@@ -53,40 +54,93 @@ app.get('/login', (req, res) => {
   // Generate state for CSRF protection
   const state = crypto.randomBytes(16).toString('hex');
   
+  // Debug logging (development only)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[LOGIN] Generated state:', state);
+    console.log('[LOGIN] Generated codeVerifier:', codeVerifier.substring(0, 10) + '...');
+    console.log('[LOGIN] Session ID:', req.sessionID);
+  }
+  
   // Store in session
   req.session.codeVerifier = codeVerifier;
   req.session.state = state;
   
-  // Redirect to IAM authorization endpoint
-  const authUrl = oauth.getAuthorizationUrl(codeChallenge, state);
-  res.redirect(authUrl);
+  // Ensure session is saved before redirecting
+  req.session.save((err) => {
+    if (err) {
+      console.error('[LOGIN] Session save error:', process.env.NODE_ENV === 'production' ? err.message : err);
+      return res.status(500).send('Failed to save session');
+    }
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[LOGIN] Session saved, redirecting to IAM');
+    }
+    
+    // Redirect to IAM authorization endpoint
+    const authUrl = oauth.getAuthorizationUrl(codeChallenge, state);
+    res.redirect(authUrl);
+  });
 });
 
 // OAuth callback endpoint
 app.get('/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
   
+  // Debug logging (development only)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[CALLBACK] Received callback request');
+    console.log('[CALLBACK] Query params:', { 
+      code: code ? 'present' : 'missing', 
+      state: state && state.length > 8 ? state.substring(0, 8) + '...' : state || 'missing', 
+      error 
+    });
+    console.log('[CALLBACK] Session state:', req.session.state && req.session.state.length > 8 ? req.session.state.substring(0, 8) + '...' : req.session.state || 'missing');
+    console.log('[CALLBACK] Session codeVerifier:', req.session.codeVerifier ? 'present' : 'missing');
+  }
+  
   // Check for errors
   if (error) {
+    console.error('[CALLBACK] OAuth error from IAM:', error, error_description);
     return res.status(400).send(`OAuth Error: ${error} - ${error_description || 'Unknown error'}`);
   }
   
   // Validate state parameter
   if (!state || state !== req.session.state) {
+    console.error('[CALLBACK] State validation failed - possible CSRF attack');
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[CALLBACK] State mismatch details:', {
+        received: state ? 'present' : 'missing',
+        expected: req.session.state ? 'present' : 'missing',
+        match: state === req.session.state
+      });
+    }
     return res.status(400).send('Invalid state parameter - possible CSRF attack');
   }
   
   // Validate code
   if (!code) {
+    console.error('[CALLBACK] No authorization code received - possible authentication failure');
     return res.status(400).send('No authorization code received');
   }
   
   try {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CALLBACK] Exchanging code for token...');
+    }
+    
     // Exchange code for token
     const tokenResponse = await oauth.exchangeCodeForToken(code, req.session.codeVerifier);
     
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CALLBACK] Token exchange successful');
+    }
+    
     // Decode the access token to get user info
     const userInfo = oauth.decodeToken(tokenResponse.access_token);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CALLBACK] User authenticated:', userInfo.sub);
+    }
     
     // Store user session
     // Note: For production, consider storing only a session ID and keeping tokens
@@ -108,7 +162,7 @@ app.get('/callback', async (req, res) => {
     // Redirect to dashboard
     res.redirect('/dashboard');
   } catch (error) {
-    console.error('Token exchange error:', error);
+    console.error('[CALLBACK] Token exchange error:', error.message);
     res.status(500).send(`Authentication failed: ${error.message}`);
   }
 });
