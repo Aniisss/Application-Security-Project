@@ -1,1 +1,4 @@
 target/
+demo-app/node_modules/
+demo-app/.env
+wildfly
