@@ -34,10 +34,15 @@ public class PhoenixIAMRepository {
         if(tenant==null){
             throw new IllegalArgumentException("Invalid Client Id!");
         }
-        return Optional.of(entityManager.createQuery("select g from Grant g where g.id.tenantId =:tenantId and g.id.identityId = :identityId",Grant.class)
-                .setParameter("tenantId",tenant.getId())
-                .setParameter("identityId",identityId)
-                .getSingleResult());
+        try {
+            Grant grant = entityManager.createQuery("select g from Grant g where g.id.tenantId =:tenantId and g.id.identityId = :identityId",Grant.class)
+                    .setParameter("tenantId",tenant.getId())
+                    .setParameter("identityId",identityId)
+                    .getSingleResult();
+            return Optional.of(grant);
+        } catch (jakarta.persistence.NoResultException e) {
+            return Optional.empty();
+        }
     }
     public String[] getRoles(String username){
         TypedQuery<Long> query = entityManager.createQuery("select i.roles from Identity i where username=:username",Long.class);
