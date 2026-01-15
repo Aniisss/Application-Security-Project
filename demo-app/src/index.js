@@ -30,14 +30,19 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    // For OAuth flows with cross-origin redirects:
-    // - sameSite must be 'none' to allow cookie on redirect from IAM
-    // - When sameSite is 'none', secure must be true (requires HTTPS)
-    // - In development with HTTP, secure must be false (may require browser flags)
+    // OAuth cross-origin redirect configuration:
+    // - sameSite: 'none' is required for cookies to work with OAuth redirects from IAM (cross-origin)
+    // - secure: true is technically required by the SameSite=None specification
+    // - In production (HTTPS), this works as expected
+    // - In development (HTTP), modern browsers reject SameSite=None without Secure flag
+    //   To test locally with HTTP, you may need to:
+    //   * Use Chrome with --disable-features=SameSiteByDefaultCookies flag, OR
+    //   * Use a local HTTPS setup with self-signed certificates
+    // - Alternative: Use same-origin setup (single domain for both IAM and app) to use sameSite: 'lax'
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 3600000, // 1 hour
-    sameSite: 'none' // Required for cross-origin OAuth redirects
+    sameSite: 'none'
   }
 }));
 
