@@ -30,7 +30,11 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: false, // Set to false to work with HTTP in development
+    // For OAuth flows with cross-origin redirects:
+    // - sameSite must be 'none' to allow cookie on redirect from IAM
+    // - When sameSite is 'none', secure must be true (requires HTTPS)
+    // - In development with HTTP, secure must be false (may require browser flags)
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 3600000, // 1 hour
     sameSite: 'none' // Required for cross-origin OAuth redirects
