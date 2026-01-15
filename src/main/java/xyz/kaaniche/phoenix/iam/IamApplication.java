@@ -1,4 +1,17 @@
 package xyz.kaaniche.phoenix.iam;
+/**
+ * IamApplication
+ *
+ * This class defines the entry point of the IAM REST application.
+ * It configures the base REST path and exposes shared components
+ * using CDI producers.
+ *
+ * Security note:
+ * - Configuration values are injected from environment variables
+ *   to avoid hardcoding sensitive information.
+ * - Centralized configuration improves maintainability and reduces
+ *   misconfiguration risks.
+ */
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
@@ -14,6 +27,8 @@ import jakarta.ws.rs.core.Application;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.logging.Logger;
+
+
 
 @ApplicationPath("/rest-iam")
 public class IamApplication extends Application {
