@@ -30,10 +30,10 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: process.env.NODE_ENV === 'production', 
+    secure: false, // Set to false to work with HTTP in development
     httpOnly: true,
     maxAge: 3600000, // 1 hour
-    sameSite: 'lax' // Allow cookie to be sent on redirects from OAuth provider
+    sameSite: 'none' // Required for cross-origin OAuth redirects
   }
 }));
 
